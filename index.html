@@ -572,18 +572,38 @@ async function startCamera() {
   const videoContainer = document.getElementById('video-container');
   const stopBtn = document.getElementById('stop-btn');
 
+  // HTTPS チェック（localhost は除外）
+  if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
+    showToast('⚠️ カメラはHTTPS環境が必要です');
+    return;
+  }
+
+  // mediaDevices 未対応チェック
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('❌ このブラウザはカメラに対応していません');
+    return;
+  }
+
   try {
-    videoStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }
-    });
+    // スマホ背面カメラ優先（exact で失敗したら任意カメラにフォールバック）
+    try {
+      videoStream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { exact: 'environment' } }
+      });
+    } catch (envErr) {
+      videoStream = await navigator.mediaDevices.getUserMedia({ video: true });
+    }
+
     videoEl.srcObject = videoStream;
+    videoEl.setAttribute('playsinline', '');
+    videoEl.setAttribute('autoplay', '');
+    videoEl.muted = true;
     await videoEl.play();
     videoContainer.style.display = 'block';
     stopBtn.style.display = 'inline-block';
 
     const hints = new Map();
     const formats = [];
-
     if (readType === 'qr') {
       formats.push(ZXing.BarcodeFormat.QR_CODE);
     } else {
@@ -600,64 +620,30 @@ async function startCamera() {
     hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
 
     codeReader = new ZXing.BrowserMultiFormatReader(hints);
-
     codeReader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
-  if (result) {
-    showResult(result.getText());
-    stopCamera();
-  }
-  // NotFoundException はスキャン中の通常状態なので無視
-  if (err && !(err instanceof ZXing.NotFoundException)) {
-    console.warn('Scan error:', err);
-  }
-});
+      if (result) {
+        showResult(result.getText());
+        stopCamera();
+      }
+      if (err && !(err instanceof ZXing.NotFoundException)) {
+        console.warn('Scan error:', err);
+      }
+    });
 
     showToast('📷 カメラを起動しました');
   } catch(e) {
-    showToast('❌ カメラにアクセスできませんでした');
+    if (e.name === 'NotAllowedError') {
+      showToast('❌ カメラの許可が必要です（設定でカメラを許可してください）');
+    } else if (e.name === 'NotFoundError') {
+      showToast('❌ カメラが見つかりませんでした');
+    } else if (e.name === 'NotSupportedError' || e.name === 'SecurityError') {
+      showToast('❌ HTTPS環境でのみカメラが使えます');
+    } else {
+      showToast('❌ カメラにアクセスできませんでした: ' + e.name);
+    }
   }
 }
 
-function stopCamera() {
-  if (codeReader) {
-    try { codeReader.reset(); } catch(e) {}
-    codeReader = null;
-  }
-  if (videoStream) {
-    videoStream.getTracks().forEach(t => t.stop());
-    videoStream = null;
-  }
-  const videoEl = document.getElementById('video');
-  videoEl.srcObject = null;
-  document.getElementById('video-container').style.display = 'none';
-  document.getElementById('stop-btn').style.display = 'none';
-}
-
-function readFromFile(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-
-  const reader = new FileReader();
-  reader.onload = (e) => {
-    const img = new Image();
-    img.onload = () => {
-      const canvas = document.createElement('canvas');
-      canvas.width = img.width;
-      canvas.height = img.height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0);
-      const multiReader = new ZXing.BrowserMultiFormatReader(hints);
-multiReader.decodeFromCanvas(canvas).then(result => {
-  showResult(result.getText());
-}).catch(() => {
-  showToast('❌ コードを読み取れませんでした');
-});
-    };
-    img.src = e.target.result;
-  };
-  reader.readAsDataURL(file);
-  event.target.value = '';
-}
 
 function showResult(text) {
   document.getElementById('result-text').textContent = text;
