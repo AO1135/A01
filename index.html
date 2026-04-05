@@ -601,12 +601,16 @@ async function startCamera() {
 
     codeReader = new ZXing.BrowserMultiFormatReader(hints);
 
-    codeReader.decodeFromVideoElement(videoEl, (result, err) => {
-      if (result) {
-        showResult(result.getText());
-        stopCamera();
-      }
-    });
+    codeReader.decodeFromVideoElementContinuously(videoEl, (result, err) => {
+  if (result) {
+    showResult(result.getText());
+    stopCamera();
+  }
+  // NotFoundException はスキャン中の通常状態なので無視
+  if (err && !(err instanceof ZXing.NotFoundException)) {
+    console.warn('Scan error:', err);
+  }
+});
 
     showToast('📷 カメラを起動しました');
   } catch(e) {
@@ -642,35 +646,12 @@ function readFromFile(event) {
       canvas.height = img.height;
       const ctx = canvas.getContext('2d');
       ctx.drawImage(img, 0, 0);
-      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-
-      const hints = new Map();
-      const formats = [];
-      if (readType === 'qr') {
-        formats.push(ZXing.BarcodeFormat.QR_CODE);
-      } else {
-        formats.push(
-          ZXing.BarcodeFormat.CODE_128,
-          ZXing.BarcodeFormat.EAN_13,
-          ZXing.BarcodeFormat.EAN_8,
-          ZXing.BarcodeFormat.UPC_A,
-          ZXing.BarcodeFormat.CODE_39,
-          ZXing.BarcodeFormat.ITF,
-          ZXing.BarcodeFormat.DATA_MATRIX
-        );
-      }
-      hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
-
       const multiReader = new ZXing.BrowserMultiFormatReader(hints);
-      const luminanceSource = new ZXing.RGBLuminanceSource(imageData.data, canvas.width, canvas.height);
-      const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
-
-      try {
-        const result = multiReader.decode(binaryBitmap);
-        showResult(result.getText());
-      } catch(err) {
-        showToast('❌ コードを読み取れませんでした');
-      }
+multiReader.decodeFromCanvas(canvas).then(result => {
+  showResult(result.getText());
+}).catch(() => {
+  showToast('❌ コードを読み取れませんでした');
+});
     };
     img.src = e.target.result;
   };
